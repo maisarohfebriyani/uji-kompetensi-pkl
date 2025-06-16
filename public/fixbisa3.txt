@@ -1,0 +1,474 @@
+===========================================
+DOKUMENTASI CODEIGNITER 4 + ADMINLTE 3.0.0
+===========================================
+
+FITUR:
+- CRUD Barang dan Kategori (Relasi)
+- Import & Export Excel
+- Export PDF dan Cetak PDF
+- Kirim Email SMTP
+- API Kirim Email (bisa dites pakai HTML)
+- Tampilkan file Excel yang diimpor
+- Menggunakan layout AdminLTE 3.0.0
+
+-------------------------------------------
+1. SETUP CODEIGNITER 4
+-------------------------------------------
+
+Install CodeIgniter 4
+> composer create-project codeigniter4/appstarter nama-proyek
+> cd nama-proyek
+
+Aktifkan .env
+> cp env .env
+
+Edit file `.env`:
+-------------------
+CI_ENVIRONMENT = development
+app.baseURL = 'http://localhost:8080'
+
+database.default.hostname = localhost
+database.default.database = pkl
+database.default.username = root
+database.default.password = 
+database.default.DBDriver = MySQLi
+
+-------------------------------------------
+2. PASANG ADMINLTE 3.0.0
+-------------------------------------------
+
+1. Download AdminLTE 3.0.0:
+   https://github.com/ColorlibHQ/AdminLTE/releases/tag/v3.0.0
+
+2. Ekstrak ke:
+   /public/assets/adminlte
+
+3. Buat file layout:
+----------------------
+
+/app/Views/layouts/header.php
+------------------------------
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title><?= $title ?? 'Dashboard' ?></title>
+  <link rel="stylesheet" href="<?= base_url('assets/adminlte/plugins/fontawesome-free/css/all.min.css') ?>">
+  <link rel="stylesheet" href="<?= base_url('assets/adminlte/dist/css/adminlte.min.css') ?>">
+</head>
+<body class="hold-transition sidebar-mini">
+<div class="wrapper">
+  <?= $this->include('layouts/navbar') ?>
+  <?= $this->include('layouts/sidebar') ?>
+  <div class="content-wrapper">
+
+/app/Views/layouts/footer.php
+------------------------------
+  </div>
+  <footer class="main-footer text-center">Footer</footer>
+</div>
+<script src="<?= base_url('assets/adminlte/plugins/jquery/jquery.min.js') ?>"></script>
+<script src="<?= base_url('assets/adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>
+<script src="<?= base_url('assets/adminlte/dist/js/adminlte.min.js') ?>"></script>
+</body>
+</html>
+
+-------------------------------------------
+3. DATABASE
+-------------------------------------------
+
+Tabel Kategori
+--------------
+CREATE TABLE kategori (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nama VARCHAR(255)
+);
+
+Tabel Barang
+------------
+CREATE TABLE barang (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nama VARCHAR(255),
+  harga INT,
+  stok INT,
+  kategori_id INT,
+  FOREIGN KEY (kategori_id) REFERENCES kategori(id)
+);
+
+-------------------------------------------
+4. MODEL
+-------------------------------------------
+
+/app/Models/KategoriModel.php
+-----------------------------
+namespace App\Models;
+use CodeIgniter\Model;
+
+class KategoriModel extends Model {
+  protected $table = 'kategori';
+  protected $allowedFields = ['nama'];
+}
+
+/app/Models/BarangModel.php
+---------------------------
+namespace App\Models;
+use CodeIgniter\Model;
+
+class BarangModel extends Model {
+  protected $table = 'barang';
+  protected $allowedFields = ['nama', 'harga', 'stok', 'kategori_id'];
+
+  public function getWithKategori() {
+    return $this->select('barang.*, kategori.nama as kategori_nama')
+                ->join('kategori', 'kategori.id = barang.kategori_id', 'left')
+                ->findAll();
+  }
+}
+
+-------------------------------------------
+5. CONTROLLER Barang.php
+-------------------------------------------
+
+<?php
+
+namespace App\Controllers;
+use App\Models\BarangModel;
+use App\Models\KategoriModel;
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+
+
+class Barang extends BaseController
+{
+    protected $barang, $kategori;
+    public function __construct()
+    {
+        $this->barang = new BarangModel();
+        $this->kategori = new KategoriModel();
+    }
+
+    public function index()
+    {
+        $data = [
+            'title' => 'Data Barang',
+            'barang' => $this->barang->getWithKategori()
+        ];
+        return view('barang/index', $data);
+    }
+
+    public function create()
+    {
+        $data = [
+            'title' => 'Tambah Barang',
+            'kategori' => $this->kategori->findAll()
+        ];
+        return view('barang/form', $data);
+    }
+
+    public function store()
+    {
+        $this->barang->save($this->request->getPost());
+        return redirect()->to('/barang');
+    }
+
+    public function edit($id)
+    {
+        $data = [
+            'title' => 'Edit Barang',
+            'barang' => $this->barang->find($id),
+            'kategori' => $this->kategori->findAll()
+        ];
+        return view('barang/form', $data);
+    }
+
+    public function update($id)
+    {
+        $this->barang->update($id, $this->request->getPost());
+        return redirect()->to('/barang');
+    }
+
+    public function delete($id)
+    {
+        $this->barang->delete($id);
+        return redirect()->to('/barang');
+    }
+
+public function exportExcel()
+{
+    $barangModel = new \App\Models\BarangModel();
+    $dataBarang = $barangModel->getWithKategori(); // pastikan method ini ada
+
+    $spreadsheet = new Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+
+    // Header kolom
+    $sheet->setCellValue('A1', 'No');
+    $sheet->setCellValue('B1', 'Nama Barang');
+    $sheet->setCellValue('C1', 'Kategori');
+    $sheet->setCellValue('D1', 'Harga');
+
+    $row = 2;
+    $no = 1;
+    foreach ($dataBarang as $barang) {
+        $sheet->setCellValue('A' . $row, $no++);
+        $sheet->setCellValue('B' . $row, $barang['nama']);
+        $sheet->setCellValue('C' . $row, $barang['kategori_nama'] ?? '-');
+        $sheet->setCellValue('D' . $row, $barang['harga']);
+        $row++;
+    }
+
+    // Buat file Excel
+    $writer = new Xlsx($spreadsheet);
+
+    // Output tanpa karakter tambahan
+    ob_clean(); // bersihkan output buffer agar tidak merusak file
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment;filename="Data_Barang.xlsx"');
+    header('Cache-Control: max-age=0');
+
+    $writer->save('php://output');
+    exit;
+}
+
+
+public function importExcel()
+{
+    $file = $this->request->getFile('file_excel');
+    if ($file->isValid() && !$file->hasMoved()) {
+
+        // Simpan file dulu ke folder
+        $newName = $file->getRandomName(); // atau gunakan nama asli: $file->getClientName()
+        $file->move(WRITEPATH . 'uploads', $newName);
+
+        // Baca file setelah disimpan
+        $spreadsheet = IOFactory::load(WRITEPATH . 'uploads/' . $newName);
+        $sheet = $spreadsheet->getActiveSheet()->toArray();
+
+        $kategoriIDs = array_column($this->kategori->findAll(), 'id');
+
+        foreach ($sheet as $key => $value) {
+            if ($key == 0) continue;
+
+            $nama = trim($value[1] ?? '');
+            $harga = (int)($value[2] ?? 0);
+            $stok = (int)($value[3] ?? 0);
+            $kategori_id = (int)($value[4] ?? 0);
+
+            if ($nama === '' || !in_array($kategori_id, $kategoriIDs)) {
+                continue;
+            }
+
+            $this->barang->save([
+                'nama'        => $nama,
+                'harga'       => $harga,
+                'stok'        => $stok,
+                'kategori_id' => $kategori_id
+            ]);
+        }
+
+    }
+
+    return redirect()->to('/barang')->with('success', 'Data berhasil diimport');
+}
+
+
+public function listImportedFiles()
+{
+    $uploadPath = WRITEPATH . 'uploads';
+    $files = array_diff(scandir($uploadPath), ['.', '..']);
+
+    $fileList = [];
+
+    foreach ($files as $file) {
+        $fileList[] = [
+            'name' => $file,
+            'url'  => base_url('barang/downloadFile/' . $file),
+            'time' => date('Y-m-d H:i:s', filemtime($uploadPath . '/' . $file))
+        ];
+    }
+
+    return view('barang/list_imported_files', ['files' => $fileList, 'title' => 'File Excel yang Telah Diimport']);
+}
+
+
+public function downloadFile($filename)
+{
+    $path = WRITEPATH . 'uploads/' . $filename;
+    if (file_exists($path)) {
+        return $this->response->download($path, null);
+    } else {
+        return redirect()->to('/barang')->with('error', 'File tidak ditemukan.');
+    }
+}
+
+
+    public function exportPDF()
+    {
+        $dompdf = new Dompdf();
+        $data = ['barang' => $this->barang->findAll()];
+        $html = view('barang/pdf', $data);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+        $dompdf->stream('laporan-barang.pdf');
+    }
+
+public function sendEmail()
+{
+    $email = \Config\Services::email();
+    $email->setTo('penerima@email.com');
+    $email->setSubject('Laporan Barang');
+    $email->setMessage('Ini adalah laporan barang terkini.');
+
+    if ($email->send()) {
+        return redirect()->to('/barang')->with('success', 'Email berhasil dikirim');
+    } else {
+        return redirect()->to('/barang')->with('error', $email->printDebugger(['headers']));
+    }
+}
+
+
+public function printPdf()
+{
+    $barang = $this->barang->getWithKategori(); // Ganti 'barangModel' jadi 'barang'
+
+    $data = [
+        'title' => 'Laporan Data Barang',
+        'barang' => $barang
+    ];
+
+    $html = view('barang/pdf', $data); // Pastikan view ini ada
+
+    $options = new Options();
+    $options->set('isHtml5ParserEnabled', true);
+
+    $dompdf = new Dompdf($options);
+    $dompdf->loadHtml($html);
+    $dompdf->setPaper('A4', 'portrait');
+    $dompdf->render();
+
+    $dompdf->stream('laporan-barang.pdf', ['Attachment' => false]);
+}
+
+}
+?>
+
+
+
+-------------------------------------------
+6. VIEW BARANG/INDEX.PHP
+-------------------------------------------
+
+<?= $this->include('layouts/header') ?>
+<section class="content">
+  <h1><?= $title ?></h1>
+
+  <a href="<?= base_url('barang/create') ?>">Tambah</a>
+  <a href="<?= base_url('barang/exportExcel') ?>">Export Excel</a>
+  <a href="<?= base_url('barang/exportPDF') ?>">Export PDF</a>
+  <a href="<?= base_url('barang/printPdf') ?>" target="_blank">Cetak PDF</a>
+
+  <table>
+    <thead><tr><th>No</th><th>Nama</th><th>Kategori</th><th>Harga</th><th>Aksi</th></tr></thead>
+    <tbody>
+      <?php $no=1; foreach ($barang as $b): ?>
+      <tr>
+        <td><?= $no++ ?></td>
+        <td><?= $b['nama'] ?></td>
+        <td><?= $b['kategori_nama'] ?></td>
+        <td><?= number_format($b['harga']) ?></td>
+        <td>
+          <a href="<?= base_url('barang/edit/'.$b['id']) ?>">Edit</a>
+          <a href="<?= base_url('barang/delete/'.$b['id']) ?>" onclick="return confirm('Hapus?')">Hapus</a>
+        </td>
+      </tr>
+      <?php endforeach ?>
+    </tbody>
+  </table>
+</section>
+<?= $this->include('layouts/footer') ?>
+
+-------------------------------------------
+7. KONFIGURASI EMAIL SMTP (di .env)
+-------------------------------------------
+
+email.fromEmail = "youremail@gmail.com"
+email.fromName  = "Admin"
+email.SMTPHost  = "smtp.gmail.com"
+email.SMTPUser  = "youremail@gmail.com"
+email.SMTPPass  = "aplikasi-password"
+email.SMTPPort  = 465
+email.SMTPCrypto = ssl
+email.protocol   = smtp
+email.mailType   = html
+
+-------------------------------------------
+8. EMAIL API via FETCH (HTML)
+-------------------------------------------
+
+Simpan file di: public/email-tester.html
+
+Isi:
+------
+<!DOCTYPE html>
+<html>
+<head><title>SMTP Email Test</title></head>
+<body>
+  <h3>Kirim Email</h3>
+  <input type="text" id="to" placeholder="Tujuan"><br>
+  <input type="text" id="subject" placeholder="Subjek"><br>
+  <textarea id="message" placeholder="Isi Pesan"></textarea><br>
+  <button onclick="kirimEmail()">Kirim</button>
+
+  <script>
+    async function kirimEmail() {
+      const response = await fetch('/barang/sendEmailApi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: document.getElementById('to').value,
+          subject: document.getElementById('subject').value,
+          message: document.getElementById('message').value
+        })
+      });
+      const result = await response.json();
+      alert(result.status);
+    }
+  </script>
+</body>
+</html>
+
+Akses di browser:
+> http://localhost:8080/email-tester.html
+
+-------------------------------------------
+9. STRUKTUR FOLDER
+-------------------------------------------
+
+/app
+  /Controllers
+    Barang.php
+  /Models
+    BarangModel.php
+    KategoriModel.php
+  /Views
+    /barang
+      index.php
+      form.php
+      pdf.php
+      list_imported_files.php
+    /layouts
+      header.php
+      footer.php
+/public
+  /assets
+    /adminlte
+  email-tester.html
+
+-------------------------------------------
+SELESAI ✅
+-------------------------------------------
+
